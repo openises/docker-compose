@@ -1,0 +1,92 @@
+version: "3.9"
+
+services:
+  # Web Server / Reverse Proxy
+  web:
+    image: lucaslorentz/caddy-docker-proxy:2.7-alpine
+    restart: always
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/openises/web:/data
+
+  # DB administration tools
+  dba-adminer:
+    image: adminer
+    restart: always
+    labels:
+      caddy: dba-adminer.example.org
+      caddy.reverse_proxy: "{{upstreams http 8080}}"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+  dba-pma:
+    image: phpmyadmin/phpmyadmin
+    restart: always
+    labels:
+      caddy: dba-pma.example.org
+      caddy.reverse_proxy: "{{upstreams http 80}}"
+    environment:
+      PMA_ARBITRARY: 1
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /sessions
+
+  # CAD: Tickets Core
+  cad-db:
+    image: mariadb:10.4
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    restart: always
+    volumes:
+      - /opt/openises/cad-db/data:/var/lib/mysql
+      - /opt/openises/cad-db/conf:/etc/mysql
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      MYSQL_ROOT_PASSWORD: "password"
+      MYSQL_DATABASE: "cad"
+      MYSQL_USER: "cad"
+      MYSQL_PASSWORD: "password"
+  cad-web:
+    image: ghcr.io/openises/tickets-php-docker:main
+    restart: always
+    depends_on:
+      - cad-db
+    labels:
+      caddy: cad.example.org
+      caddy.reverse_proxy: "{{upstreams http 80}}"
+    volumes:
+      - /opt/openises/cad-web:/var/www/html:rw
+      - /etc/localtime:/etc/localtime:ro
+
+  # AVL: Traccar
+  avl-db:
+    image: mariadb:10.4
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: "password"
+      MYSQL_DATABASE: "avl"
+      MYSQL_USER: "avl"
+      MYSQL_PASSWORD: "password"
+    volumes:
+      - /opt/openises/avl-db/data:/var/lib/mysql
+      - /opt/openises/avl-db/conf:/etc/mysql
+      - /etc/localtime:/etc/localtime:ro
+  avl-app:
+    image: traccar/traccar:5.3-alpine
+    restart: always
+    depends_on:
+      - avl-db
+    ports:
+      - 5055:5055
+      - 5055:5055/udp
+      # - 5000-5150:5000-5150/tcp
+      # - 5000-5150:5000-5150/udp
+    labels:
+      caddy: avl.example.org
+      caddy.reverse_proxy: "{{upstreams http 8082}}"
+    volumes:
+      - /opt/openises/avl/logs:/opt/traccar/logs:rw
+      - /opt/openises/avl/traccar.xml:/opt/traccar/conf/traccar.xml:ro
+      - /etc/localtime:/etc/localtime:ro
